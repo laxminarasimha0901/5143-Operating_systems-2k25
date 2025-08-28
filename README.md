@@ -4,6 +4,6 @@
 
 #### Image:
 
-<img src= https://github.com/laxminarasimha0901/CMPS-5243-Algorithm-Analysis/blob/main/PXL_20231226_004129745.PORTRAIT.jpg>>
+<img src= https://github.com/laxminarasimha0901/CMPS-5243-Algorithm-Analysis/blob/main/PXL_20231226_004129745.PORTRAIT.jpg width="200">
 
 
