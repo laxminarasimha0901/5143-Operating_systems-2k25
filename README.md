@@ -6,4 +6,5 @@
 
 <img src= https://github.com/laxminarasimha0901/CMPS-5243-Algorithm-Analysis/blob/main/PXL_20231226_004129745.PORTRAIT.jpg width="200">
 
-
+###Avatar 
+<img https://github.com/laxminarasimha0901/CMPS-5243-Algorithm-Analysis/blob/main/Assignments/luffy2.jpg width="100">
