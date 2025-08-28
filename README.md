@@ -1,17 +1,9 @@
-# Repo 5143-Operating_systems-2k25
-# Name: Laxminarasimha Soma
-# ## Albert Einstein
-
-#### Repo: 5143 Operating Systems
-
-#### Email: albert.einstein@yahoo.com
-
-#### Website: https://en.wikipedia.org/wiki/Albert_Einstein
+5143-Operating_systems-2k25
+### Laxminarasimha Soma
+#### Email: lsoma0109@my.msutexas.edu
 
 #### Image:
 
-<img src="https://images2.imgbox.com/b3/d5/09sLKh1N_o.png" width="200">
+<img src= https://github.com/laxminarasimha0901/CMPS-5243-Algorithm-Analysis/blob/main/PXL_20231226_004129745.PORTRAIT.jpg>>
 
-#### Avatar:
 
-<img src="https://images2.imgbox.com/ae/bd/tERTAGTL_o.png" width="75">
