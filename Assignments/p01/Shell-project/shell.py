@@ -108,7 +108,12 @@ def help(parts, command_map=None):
     
 '''
 ls
-- lists the entire working directory
+lists the entire working directory.
+
+flags:
+-a : shows all files, indluding hidden ones
+-l : log listing (permissions, size, and name)
+-h: human readable sizes (KB, MB, GB)
 '''
 def ls(parts):
     '''
@@ -122,37 +127,31 @@ def ls(parts):
     input: dict: {"input":string,"cmd":string,"params":list,"flags":string}
     output dict: {"output":string,"error":string}
     '''
-    input = parts.get("input",None)
-    flags = parts.get("flags",None) or ""
-    params = parts.get("params",None) or []
+    input = parts.get("input", None)
+    flags = parts.get("flags", None) or ""
+    params = parts.get("params", None) or []
 
     # determine which directory to list
     if len(params) > 0:
         # use a specified directory
         directory = params[0]
     else:
-        # use the current directory
+        # default to the current directory
         directory = "."
 
     try:
-        # get a list of files in the current directory
+        # get the list of files in the directory
         files = os.listdir(directory)
 
-        # handles -a flag
-        if 'a' in flags:
-            # show all files, including hidden ones
-            files = os.listdir(directory)
-        else:
-            # hide files that start with a dot
-            files = os.listdir(directory)
-            files = [f for f in files if not f.startswith('.')]
+        # handles the -a flag (show all files, including hidden ones)
+        if "a" not in flags:
+            files = [f for f in files if not f.startswith(".")]
 
         # sorts the files alphabetically
         files.sort()
 
-        # handles -l flag
-        if 'l' in flags:
-            # long format with file details
+        # handles the -l flag (long listing format)
+        if "l" in flags:
             output_lines = []
             for file in files:
                 filepath = os.path.join(directory, file)
@@ -160,7 +159,11 @@ def ls(parts):
                     stat_info = os.stat(filepath)
                     size = stat_info.st_size
 
-                    if 'h' in flags:
+                    # use actual file permissions
+                    permissions = stat.filemode(stat_info.st_mode)
+
+                    # handles the -h flag (human readable sizes)
+                    if "h" in flags:
                         if size >= 1024**3:
                             size_str = f"{size/1024**3:.1f}G"
                         elif size >= 1024**2:
@@ -172,24 +175,26 @@ def ls(parts):
                     else:
                         size_str = str(size)
 
-                    # deternmine if it is a directory or file
-                    file_type = "d" if os.path.isdir(filepath) else "-"
-                    output_lines.append(f"{file_type}rwxr-xr-x {size_str:>8} {file}")
+                    output_lines.append(f"{permissions} {size_str:>8} {file}")
+
                 except OSError:
-                    output_lines.append(f"?--------- {'?':>8}  {file}")
+                    output_lines.append(f"?--------- {'?':>8} {file}")
+            
             output = "\n".join(output_lines)
+
         else:
-            # short format with just file names
+            # simple listing with just filenames
             output = "  ".join(files)
-
-        return {"output": output, "error":None}
-
+        
+        return {"output": output, "error": None}
+    
     except FileNotFoundError:
         return {"output": None, "error": f"ls: cannot access '{directory}': No such file or directory"}
     except PermissionError:
         return {"output": None, "error": f"ls: cannot open directory '{directory}': Permission denied"}
     except Exception as e:
         return {"output": None, "error": f"ls: {str(e)}"}
+
 '''
 exit:
 exit the shell
@@ -355,11 +360,8 @@ def cp(parts):
 rm:
 allows the user to delete a file/directory by passing its name
 '''
-import os
-import shutil
-
 def rm(parts):
-    '''
+    """
     removes files or directories.
 
     flags:
@@ -368,42 +370,48 @@ def rm(parts):
 
     input: dict: {"input":string,"cmd":string,"params":list,"flags":string}
     output: dict: {"output":string,"error":string}
-    '''
+    """
     params = parts.get("params") or []
     flags = parts.get("flags") or ""
 
     if not params:
         return {"output": None, "error": "rm: missing operand"}
 
+    # used as an error message display
+    errors = []
+
     for path in params:
         try:
+            # if the path is a file, delete it
             if os.path.isfile(path):
                 os.remove(path)
-
-            # flag handling
+            # if the path is a directory
             elif os.path.isdir(path):
-                # if r is in the flags, but f isn't, then prompt
                 if "r" in flags:
                     if "f" not in flags:
-                        user = input(f"rm: remove directory '{path}' and its contents? (y/n) ")
-                        if user == "y":
+                        user = input(f"Are you sure you want to delete '{path}' and its contents? (y/n) ")
+                        # if ANYTHING but "y" is entered, do nothing
+                        if user.lower() != "y":
                             continue
+                    # deletion
                     shutil.rmtree(path)
                 else:
-                    # throw error
                     if "f" not in flags:
-                        print(f"rm: cannot remove '{path}': Is a directory")
-
+                        errors.append(f"rm: cannot remove '{path}': Is a directory")
+            # if the files doesn't exist
             else:
-                # throw error
                 if "f" not in flags:
-                    print(f"rm: cannot remove '{path}': No such file or directory")
+                    errors.append(f"rm: cannot remove '{path}': No such file or directory")
 
+        # display error exception msg
         except Exception as e:
             if "f" not in flags:
-                print(f"rm: error removing '{path}': {str(e)}")
-
-    return {"output": None, "error": None}
+                errors.append(f"rm: error removing '{path}': {str(e)}")
+    if errors:
+        error_output = "\n".join(errors)
+    else:
+        error_output = None
+    return {"output": None, "error": error_output}
  
 
 '''
@@ -411,23 +419,104 @@ cat:
 allows the user to view the contents of a file
 '''
 def cat(parts):
-    """
-    prints the contents of a file
-    """
-    params = parts.get("params") or []
-    if not params:
-        return {"output": None, "error": "cat: missing file operand"}
-    
-    filename = params[0]
-    try:
-        with open(filename, "r", encoding="utf-8") as f:
-            return {"output": f.read(), "error": None}
-    except FileNotFoundError:
-        return {"output": None, "error": f"cat: {filename}: No such file"}
-    except PermissionError:
-        return {"output": None, "error": f"cat: {filename}: Permission denied"}
-    except Exception as e:
-        return {"output": None, "error": f"cat: {str(e)}"}
+    '''
+    Displays or cats file contents or piped input, with optional formatting.
+
+    Flags:
+    -n : number all lines
+    -b : number non-empty lines (overrides -n)
+    -s : collapse multiple blank lines into one
+    -v : display non-printing characters (except tabs and newlines)
+
+    Input: dict with keys: "input" (str), "cmd" (str), "params" (list), "flags" (str)
+    Output: dict with keys: "output" (str), "error" (str)
+    '''
+    arguments = parts.get("params", [])
+    options = parts.get("flags", "")
+    piped_data = parts.get("input")
+    output_file = parts.get("outfile")
+    append_mode = parts.get("append", False)
+
+    # Determine input sources
+    if piped_data is not None:
+        sources = ["<stdin>"]
+    else:
+        sources = arguments
+        if not sources:
+            return {"output": None, "error": "cat: No file provided"}
+
+    all_lines = []
+
+    # Collect content from all sources
+    for source in sources:
+        try:
+            if source == "<stdin>":
+                all_lines.extend(piped_data.splitlines(keepends=True))
+            else:
+                with open(source, "r", encoding="utf-8") as file:
+                    all_lines.extend(file.readlines())
+        except FileNotFoundError:
+            return {"output": None, "error": f"cat: {source}: File not found"}
+        except PermissionError:
+            return {"output": None, "error": f"cat: {source}: Access denied"}
+        except Exception as err:
+            return {"output": None, "error": f"cat: Error: {str(err)}"}
+
+    # Apply -s flag: reduce multiple blank lines
+    if "s" in options:
+        filtered_lines = []
+        last_was_blank = False
+        for line in all_lines:
+            is_blank = line.strip() == ""
+            if is_blank and last_was_blank:
+                continue
+            filtered_lines.append(line)
+            last_was_blank = is_blank
+        all_lines = filtered_lines
+
+    # Apply -v flag: show non-printing characters
+    if "v" in options:
+        import string
+        modified_lines = []
+        for line in all_lines:
+            new_line = ""
+            for char in line:
+                if char in string.printable or char in ("\t", "\n"):
+                    new_line += char
+                else:
+                    new_line += f"^{chr(ord(char) % 128 + 64)}"
+            modified_lines.append(new_line)
+        all_lines = modified_lines
+
+    # Apply -b or -n flag: add line numbers
+    if "b" in options:
+        numbered_lines = []
+        line_counter = 0
+        for line in all_lines:
+            if line.strip():
+                line_counter += 1
+                numbered_lines.append(f"{line_counter:6}  {line.rstrip()}\n")
+            else:
+                numbered_lines.append(line)
+        all_lines = numbered_lines
+    elif "n" in options:
+        all_lines = [f"{i+1:6}  {line.rstrip()}\n" for i, line in enumerate(all_lines)]
+
+    final_output = "".join(all_lines).rstrip()
+
+    # Handle output redirection
+    if output_file:
+        try:
+            mode = "a" if append_mode else "w"
+            with open(output_file, mode, encoding="utf-8") as file:
+                file.write(final_output + "\n")
+            return {"output": None, "error": None}
+        except PermissionError:
+            return {"output": None, "error": f"cat: {output_file}: Access denied"}
+        except Exception as err:
+            return {"output": None, "error": f"cat: Error: {str(err)}"}
+
+    return {"output": final_output, "error": None}
 
 
 '''
@@ -515,45 +604,95 @@ counts the total number of words/lines in a file or piped input
 '''
 def wc(parts):
     '''
-    counts the total number of words/lines in a file or piped input.
+    Counts lines, words, bytes, and/or characters in files or piped input.
 
-    flags:
+    Flags:
     -l : count lines
     -w : count words
+    -c : count bytes
+    -m : count characters (overrides -c if specified)
+
+    Input: dict with keys: {"input" (str), "cmd" (str), "params" (list), "flags" (str)}
+    Output: dict with keys: "output" (str), "error" (str)
     '''
-    params = parts.get("params") or []
-    flags = parts.get("flags") or ""
-    input_text = parts.get("input")
+    arguments = parts.get("params", [])
+    options = parts.get("flags", "")
+    piped_data = parts.get("input")
 
-    # Use piped input if it exists
-    if input_text:
-        text = input_text
-    elif params:
-        filename = params[0]
-        try:
-            with open(filename, "r", encoding="utf-8") as f:
-                text = f.read()
-        except FileNotFoundError:
-            return {"output": None, "error": f"wc: {filename}: No such file"}
-        except PermissionError:
-            return {"output": None, "error": f"wc: {filename}: Permission denied"}
-    else:
-        return {"output": None, "error": "wc: missing input"}
+    # Decide what to count based on flags or default behavior
+    show_lines = "l" in options or not options
+    show_words = "w" in options or not options
+    show_bytes = "c" in options or not options
+    show_chars = "m" in options
+    if show_chars and "c" in options:
+        show_bytes = False  # -m takes precedence over -c
 
-    # Count lines and words
-    line_count = text.count("\n")
-    word_count = len(text.split())
+    # Determine input sources
+    sources = arguments if arguments else []
+    if piped_data is not None:
+        sources = ["<stdin>"]  # Handle piped input
 
-    # Handle flags
-    if "l" in flags and "w" in flags:
-        return {"output": f"{line_count} {word_count}", "error": None}
-    elif "l" in flags:
-        return {"output": str(line_count), "error": None}
-    elif "w" in flags:
-        return {"output": str(word_count), "error": None}
-    else:
-        # default: both counts
-        return {"output": f"{line_count} {word_count}", "error": None}
+    overall_lines = 0
+    overall_words = 0
+    overall_bytes = 0
+    overall_chars = 0
+    results = []
+
+    for source in sources:
+        if source == "<stdin>":
+            text_content = piped_data
+        else:
+            try:
+                with open(source, "r", encoding="utf-8") as file:
+                    text_content = file.read()
+            except FileNotFoundError:
+                return {"output": None, "error": f"word_count: {source}: File not found"}
+            except PermissionError:
+                return {"output": None, "error": f"word_count: {source}: Access denied"}
+            except Exception as err:
+                return {"output": None, "error": f"word_count: Error: {str(err)}"}
+
+        # Calculate counts
+        line_total = text_content.count("\n") + (1 if text_content and not text_content.endswith("\n") else 0)
+        word_total = len(text_content.split())
+        byte_total = len(text_content.encode("utf-8"))
+        char_total = len(text_content)
+
+        # Accumulate totals for multiple files
+        overall_lines += line_total
+        overall_words += word_total
+        overall_bytes += byte_total
+        overall_chars += char_total
+
+        # Build output for this source
+        counts = []
+        if show_lines:
+            counts.append(f"{line_total:8}")
+        if show_words:
+            counts.append(f"{word_total:8}")
+        if show_chars:
+            counts.append(f"{char_total:8}")
+        if show_bytes:
+            counts.append(f"{byte_total:8}")
+        if source != "<stdin>":
+            counts.append(source)
+        results.append(" ".join(counts))
+
+    # Add totals if multiple files
+    if len(sources) > 1:
+        total_counts = []
+        if show_lines:
+            total_counts.append(f"{overall_lines:8}")
+        if show_words:
+            total_counts.append(f"{overall_words:8}")
+        if show_chars:
+            total_counts.append(f"{overall_chars:8}")
+        if show_bytes:
+            total_counts.append(f"{overall_bytes:8}")
+        total_counts.append("total")
+        results.append(" ".join(total_counts))
+
+    return {"output": "\n".join(results).strip(), "error": None}
 
           
 
@@ -588,39 +727,85 @@ less:
 allows the user to only see snippets of files
 '''
 def less(parts):
+    '''
+    Shows a file's contents page by page, with optional line count and line numbers.
 
-    params =parts.get("params") or[] 
+    Flags:
+    -N : show line numbers
+    '''
+    params = parts.get("params", [])
+    flags = parts.get("flags", "")
+    show_numbers = "N" in flags
 
+    # Check if any parameters are provided
     if not params:
-        return {"output": None, "error":"less:missing file operand"}
-    
-    filename =params[0]
+        return {"output": None, "error": "less: No file given"}
+
+    # Default to 20 lines per page
+    lines_per_page = 10
+    file_name = None
+
+    # Find file name and line count
+    for param in params:
+        if param.isdigit():
+            lines_per_page = int(param)  # Set custom line count
+            if lines_per_page <= 0:
+                return {"output": None, "error": "less: Line count must be positive"}
+        else:
+            file_name = param  # Set file name
+
+    if not file_name:
+        return {"output": None, "error": "less: No file given"}
 
     try:
-        with open(filename, "r", encoding="utf-8") as f:
-            lines = f.readlines()
+        # Read the file
+        with open(file_name, "r", encoding="utf-8") as file:
+            lines = file.readlines()
 
-        #show file content 20 lines at a time
-        page_size = 20
+        # Start at the first line
+        start_line = 0
 
-        for i in range(0,len(lines), page_size):
-            chunk = lines[i:i +page_size]
-            for line in chunk:
-                print(line.rstrip())  #it prints without extra newlines
+        # Show file page by page
+        while start_line < len(lines):
+            # Get the next chunk of lines
+            end_line = min(start_line + lines_per_page, len(lines))
+            for i, line in enumerate(lines[start_line:end_line], start=start_line + 1):
+                if show_numbers:
+                    print(f"{i:4} {line.rstrip()}")  # Show line number
+                else:
+                    print(line.rstrip())  # Show line without extra newline
 
-            user_input =input("--for more-- (enter to continue, press'q' to quit) ")
-            
-            if user_input.lower() == "q":
-                
-                break 
+            # Stop if we’ve shown all lines
+            if end_line >= len(lines):
+                break
+
+            # Show prompt and wait for user input
+            sys.stdout.write("--More-- (press space to continue, q to quit)")
+            sys.stdout.flush()
+
+            # Use getch to get a single key
+            from getch import Getch
+            key = Getch()()
+
+            # Clear the prompt
+            sys.stdout.write("\r" + " " * 40 + "\r")
+            sys.stdout.flush()
+
+            # Handle user input
+            if key.lower() == "q":
+                return {"output": None, "error": None}
+            if key in (" ", "\r"):
+                start_line += lines_per_page  # Move to next page
+            # Ignore other keys and loop again
+
         return {"output": None, "error": None}
-    
+
     except FileNotFoundError:
-        return {"output": None, "error":f"less: {filename} No such file"}
+        return {"output": None, "error": f"less: {file_name}: File not found"}
     except PermissionError:
-        return{"output":None, "error":f"less: permission denied"}
+        return {"output": None, "error": f"less: {file_name}: Access denied"}
     except Exception as e:
-        return{"output":None, "error":f"less: {str(e)}"}
+        return {"output": None, "error": f"less: Error: {str(e)}"}
     
 
 '''
@@ -875,7 +1060,7 @@ def whoami(parts):
 clear
 clears the terminal screen
 '''
-def cls(parts=None):
+def clear(parts=None):
     '''
     clears the terminal screen.
     '''
@@ -962,7 +1147,7 @@ def execute_command(command_dict):
         'cp': cp,
         'grep': grep,
         'help': help,
-        'cls': cls,
+        'clear': clear,
         'chmod': chmod
         # etc.ex
     }
@@ -1111,5 +1296,8 @@ if __name__ == "__main__":
             cmd = cmd[:cursor_position] + char + cmd[cursor_position:]
             cursor_position += 1
             redraw_prompt(cmd, cursor_position)
+
+
+
 
 
