@@ -1,204 +1,12 @@
-"""
-TODO: Add an arrival time to the generated processes and only allow entry when the clock == arrival time.
-TODO: Add a quantum (time slice) countdown for Round Robin scheduling.
-"""
-
+# This is Dr. Griffin's version (I think) of scheduler.py.
+from pkg.clock import Clock
+from pkg.cpu import CPU
+from pkg.iodevice import IODevice
 import collections
 import csv
 import json
-from multiprocessing import process
-import sys
-from rich import print
 
 
-class ViewAttributes:
-    """Class to hold view attributes for future GUI integration"""
-
-    def __init__(self):
-        self.color = None
-
-
-# ---------------------------------------
-class Clock:
-    """
-    Singleton clock using Borg pattern
-    All instances share the same state"""
-
-    _shared_state = {}  # Dictionary that's shared between all instances
-
-    def __init__(self):
-        # Make the instance's __dict__ point to the shared state
-        self.__dict__ = self._shared_state
-        # Initialize time if not already done
-        if not hasattr(self, "time"):
-            self.time = 0
-
-    def tick(self, step=1):
-        """Advance the clock by 'step' units (default 1)"""
-        self.time += step
-
-    def reset(self):
-        """Reset the clock to 0"""
-        self.time = 0
-
-    def now(self):
-        """Get the current time"""
-        return self.time
-
-
-# ---------------------------------------
-class Process:
-    """
-    Represents a process with CPU and I/O bursts
-    Attributes:
-        pid: unique process ID
-        bursts: list of bursts [{"cpu": X}, {"io": {"type": T, "duration": D}}, ...]
-        priority: scheduling priority (0 = highest)
-        state: current state ("new", "ready", "running", "waiting", "finished")
-    Methods:
-        current_burst(): returns the current burst or None if done
-        advance_burst(): moves to the next burst
-        __repr__(): string representation for debugging
-        __str__(): user-friendly string representation
-    """
-
-    def __init__(self, pid, bursts, priority=0):
-        """Initialize process with pid, bursts, and priority"""
-        self.pid = pid
-        self.bursts = bursts[:]  # [{"cpu": X}, {"io": {...}}, ...]
-        self.priority = priority
-        self.state = "new"
-
-    def current_burst(self):
-        """Get the current burst"""
-        # Return the first burst if it exists, else None
-        return self.bursts[0] if self.bursts else None
-
-    def advance_burst(self):
-        """Move to the next burst"""
-        if self.bursts:
-            # Remove the first burst
-            self.bursts.pop(0)
-        # No return needed - modifies in place and current_burst() will reflect change
-
-    def __repr__(self):
-        # return self.__str__()
-        return f"{self.pid}"
-
-    def __str__(self):
-        # return f"Process(pid={self.pid}, priority={self.priority}, state={self.state}, bursts={self.bursts})"
-        return self.__repr__()
-
-
-# ---------------------------------------
-class CPU:
-    """
-    Represents a CPU device
-    Attributes:
-        cid: CPU ID
-        clock: reference to the shared Clock instance
-        current: currently assigned process or None
-    Methods:
-        is_busy(): returns True if CPU is busy
-        assign(process): assigns a process to the CPU
-        tick(): advances the CPU by one time unit, returns finished process if any
-        __repr__(): string representation for debugging
-    """
-
-    def __init__(self, cid, clock):
-        """Initialize CPU with ID and clock reference"""
-        self.cid = cid
-        self.clock = clock
-        self.current = None
-
-    def is_busy(self):
-        """Check if the CPU is currently busy"""
-        return self.current is not None
-
-    def assign(self, process):
-        """Assign a process to the CPU"""
-        self.current = process
-        process.state = "running"
-
-    def tick(self):
-        """
-        Advance the process on the CPU by one time unit
-        Returns:
-             the process if it finished its CPU burst, else None
-        """
-        if not self.current:
-            return None
-        # Process the current burst
-        burst = self.current.current_burst()
-        # If it's a CPU burst, decrement its time
-        if burst and "cpu" in burst:
-            burst["cpu"] -= 1
-            # If the burst is done, advance to the next one (could be CPU or IO or done)
-            if burst["cpu"] == 0:
-                self.current.advance_burst()  # Move to the next burst
-                finished_proc = self.current  # Save reference to finished process
-                self.current = None  # Free the CPU
-                return finished_proc  # Return the finished process
-        return None
-
-    def __repr__(self):
-        return f"CPU{self.cid}: {self.current.pid if self.current else 'idle'}"
-
-
-# ---------------------------------------
-class IODevice:
-    """
-    Represents an I/O device
-    Attributes:
-        did: Device ID
-        dtype: Device type
-        clock: reference to the shared Clock instance
-        current: currently assigned process or None
-    Methods:
-        is_busy(): returns True if the device is busy
-        assign(process): assigns a process to the device
-        tick(): advances the device by one time unit, returns finished process if any
-        __repr__(): string representation for debugging
-    """
-
-    def __init__(self, did, clock, dtype="GENERIC_IO"):
-        """Initialize IO device with ID, type, and clock reference"""
-        self.did = did
-        self.dtype = dtype
-        self.clock = clock
-        self.current = None
-
-    def is_busy(self):
-        """Check if the IO device is currently busy"""
-        return self.current is not None
-
-    def assign(self, process):
-        """Assign a process to the IO device"""
-        self.current = process
-        process.state = "io"  # sets the current process state to io
-
-    def tick(self):
-        """Advance the process on the IO device by one time unit"""
-        if not self.current:
-            return None
-        # Process the current burst
-        burst = self.current.current_burst()
-        # If it's an I/O burst, decrement its duration
-        if burst and "io" in burst:
-            burst["io"]["duration"] -= 1
-            # If the burst is done, advance to the next one (could be CPU or IO or done)
-            if burst["io"]["duration"] == 0:
-                self.current.advance_burst()  # Move to the next burst
-                finished_proc = self.current  # Save reference to finished process
-                self.current = None  # Free the IO device
-                return finished_proc  # Return the finished process
-        return None
-
-    def __repr__(self):
-        return f"IO{self.did}: {self.current.pid if self.current else 'idle'}"
-
-
-# ---------------------------------------
 class Scheduler:
     """
     A simple CPU and I/O scheduler
@@ -255,6 +63,14 @@ class Scheduler:
         """
 
         process.state = "ready"  # sets the current process state to ready
+        
+        # Set start_time to arrival_time if not already set
+        if process.start_time == 0:
+            process.start_time = process.arrival_time
+        
+        # Track first time entering ready queue (for wait time calculation)
+        if not hasattr(process, 'first_ready_time'):
+            process.first_ready_time = self.clock.now()
 
         # adds the process to the end of the ready queue
         self.ready_queue.append(process)
@@ -314,29 +130,34 @@ class Scheduler:
 
     def _snapshot(self):
         """Take a snapshot of the current state for logging"""
-
         # The join method is used to concatenate the process IDs in
         # the ready queue into a single string, separated by commas.
         # If the ready queue is empty, it defaults to the string "empty".
         rq = ", ".join([p.pid for p in self.ready_queue]) or "empty"
-
         # Same as above but for the wait queue
         wq = ", ".join([p.pid for p in self.wait_queue]) or "empty"
-
         # Join the status of each CPU and IO device into strings separated by " | "
         cpus = " | ".join([str(cpu) for cpu in self.cpus])
-
         # Same as above but for IO devices
         ios = " | ".join([str(dev) for dev in self.io_devices])
-
         # Creates a string snapshot of the current state of
         # the scheduler including ready queue, wait queue, CPUs, and IO devices
         snap = f"  [Ready: {rq}]  [Wait: {wq}]  Cpus:[{cpus}]  Ios:[{ios}]"
-
         # Append the snapshot to the log
         self.log.append(snap)
         if self.verbose:
             print(snap)
+
+    # snapshot method strictly for the visualizer portion
+    def snapshot(self):
+        """Return current state for the visualizer"""
+        return {
+        'clock': self.clock.time,
+        'ready_queue': [p.pid for p in self.ready_queue],
+        'wait_queue': [p.pid for p in self.wait_queue],
+        'cpu': [cpu.current.pid if cpu.current else None for cpu in self.cpus],
+        'ios': [dev.current.pid if dev.current else None for dev in self.io_devices]
+    }
 
     def _callback(self, pid, new_state):
         """Placeholder for state change callback"""
@@ -347,6 +168,11 @@ class Scheduler:
         Advance the scheduler by one time unit
         Returns: None
         """
+        for p in self.ready_queue:
+            p.wait_time += 1  # Increment wait time for processes in ready queue
+        for p in self.wait_queue:
+            p.io_time += 1  # Increment I/O time for processes in wait queue
+
         # Iterate over each CPU and tick (decrement burst time) by 1 if not idle
         for cpu in self.cpus:
 
@@ -376,8 +202,8 @@ class Scheduler:
                 # If the next burst is CPU, move to ready queue
                 elif burst and "cpu" in burst:
                     self.ready_queue.append(proc)
-                    if self._callback:
-                        self._callback(proc.pid, "ready")
+                    # if self._callback:
+                    #     self._callback(proc.pid, "ready")
 
                     # logs event of moving process to ready queue
                     self._record(
@@ -389,10 +215,12 @@ class Scheduler:
                 # No more bursts, process is finished
                 else:
                     proc.state = "finished"
+                    proc.end_time = self.clock.now()
+                    proc.turnaround_time = proc.end_time - proc.start_time
                     self.finished.append(proc)
 
-                    if self._callback:
-                        self._callback(proc.pid, "finished")
+                    # if self._callback:
+                    #     self._callback(proc.pid, "finished")
 
                     # logs event of process finishing all bursts
                     self._record(
@@ -427,6 +255,9 @@ class Scheduler:
                 # else process is finished
                 else:
                     proc.state = "finished"
+
+                    proc.end_time = self.clock.now()
+                    proc.turnaround_time = proc.end_time - proc.start_time
                     self.finished.append(proc)
                     if self._callback:
                         self._callback(proc.pid, "finished")
@@ -447,6 +278,10 @@ class Scheduler:
 
                 # Pop process from left of ready queue
                 proc = self.ready_queue.popleft()
+                
+                # Track first dispatch time (when process first gets CPU)
+                if not hasattr(proc, 'first_dispatch_time'):
+                    proc.first_dispatch_time = self.clock.now()
 
                 # Assign process to CPU
                 cpu.assign(proc)
@@ -475,6 +310,15 @@ class Scheduler:
         if self.verbose:
             self._snapshot()
         self.clock.tick()
+    
+    def has_jobs(self):
+        """Check if there are any jobs left to process (for visualizer compatibility)"""
+        return (
+            self.ready_queue
+            or self.wait_queue
+            or any(cpu.is_busy() for cpu in self.cpus)
+            or any(dev.is_busy() for dev in self.io_devices)
+        )
 
     def run(self):
         """
@@ -484,12 +328,7 @@ class Scheduler:
 
         # Continue stepping while there are processes in ready/wait queues
         # or any CPU/IO device is busy
-        while (
-            self.ready_queue
-            or self.wait_queue
-            or any(cpu.is_busy() for cpu in self.cpus)
-            or any(dev.is_busy() for dev in self.io_devices)
-        ):
+        while self.has_jobs():
             self.step()
 
     def timeline(self):
@@ -523,141 +362,91 @@ class Scheduler:
         if self.verbose:
             print(f"✅ Timeline exported to {filename}")
 
+    def print_stats(self):
+        """Print statistics for all finished processes"""
+        if not self.finished:
+            print("\nNo processes have completed yet.")
+            return
+            
+        print("\n" + "="*80)
+        print("PROCESS STATISTICS")
+        print("="*80)
+        
+        # Calculate totals for averages
+        total_wait_time = 0
+        total_turnaround_time = 0
+        total_response_time = 0
+        
+        raw_data = []
+        for p in self.finished:
+            # FIX: Use the accumulated wait_time from the step() function
+            actual_wait_time = p.wait_time
+            
+            # Turnaround time = completion - arrival
+            turnaround_time = p.end_time - p.arrival_time
+            
+            # Response time = Time from arrival until FIRST CPU touch
+            # If we missed capturing first_dispatch_time, assume it was immediate (wait_time)
+            if hasattr(p, 'first_dispatch_time'):
+                response_time = p.first_dispatch_time - p.arrival_time
+            else:
+                response_time = actual_wait_time
+            
+            total_wait_time += actual_wait_time
+            total_turnaround_time += turnaround_time
+            total_response_time += response_time
+            
+            raw_data.append(
+                f"[{p.pid}: Arrival={p.arrival_time} FirstCPU={getattr(p, 'first_dispatch_time', '?')} Wait={actual_wait_time}, Turnaround={turnaround_time}, Response={response_time}, Run={p.runtime}, I/O={p.io_time}, InitCpuBurst={p.init_cpu_bursts}, InitIoBurst={p.init_io_bursts}, TotalBursts={p.TotalBursts}]"
+            )
+        
+        # Calculate averages
+        num_processes = len(self.finished)
+        avg_wait_time = total_wait_time / num_processes
+        avg_turnaround_time = total_turnaround_time / num_processes
+        avg_response_time = total_response_time / num_processes
+        
+        try:
+            from rich.console import Console
+            from rich.table import Table
+            import re
 
-# ---------------------------------------
-# Load JSON into Process objects
-# ---------------------------------------
-def load_processes_from_json(filename="generated_processes.json", limit=None):
-    """Load processes from a JSON file into Process instances
-    Args:
-        filename: path to the JSON file
-        limit: if set, only load this many processes
-    Returns:
-        list of Process instances
-    Raises:
-        FileNotFoundError if the file does not exist
-    """
+            # Parse function
+            def parse_job(job_str):
+                job_str = job_str.strip("[]")
+                job_id, rest = job_str.split(":", 1)
+                job_id = job_id.strip()
+                pairs = re.findall(r"(\w+/?.*?)=([\d]+)", rest)
+                return {"ID": job_id, **{k: v for k, v in pairs}}
 
-    # If limit is set, only load that many processes
-    with open(filename) as f:
-        data = json.load(f)
+            # Convert to list of dicts
+            jobs = [parse_job(entry) for entry in raw_data]
 
-    processes = []
+            # Build Rich table
+            table = Table(title="Process Details")
+            for col in jobs[0].keys():
+                table.add_column(col, justify="center")
 
-    # If limit is None or greater than available, use all
-    if limit is None or limit > len(data):
-        limit = len(data)
+            for job in jobs:
+                table.add_row(*[str(job[col]) for col in job])
 
-    # :limit slices the list of processes loaded from the JSON file to only include
-    # the first 'limit' number of processes.
-    # This is useful for testing or running simulations with a smaller subset of processes.
-    for p in data[:limit]:
-
-        # Create a list of bursts in the expected format for Process
-        # [{"cpu": X}, {"io": {"type": T, "duration": D}}, ...]
-        bursts = []
-
-        # Iterate over each burst in the process's burst list
-        # and append to bursts list in the correct format
-        for b in p["bursts"]:
-            if "cpu" in b:
-                # format {"cpu": X}
-                bursts.append({"cpu": b["cpu"]})
-
-            elif "io" in b:
-                # format {"io": {"type": T, "duration": D}}
-                bursts.append(
-                    {"io": {"type": b["io"]["type"], "duration": b["io"]["duration"]}}
-                )
-
-        proc = Process(pid=p["pid"], bursts=bursts, priority=p["priority"])
-        processes.append(proc)
-
-    return processes
-
-
-def parse_value(value):
-    """
-    Try to convert string to appropriate type since everything read in from command line is a string
-    Args:
-        value: string value to parse
-    Returns:
-        value converted to bool, int, float, or original string
-    """
-    # Try boolean
-    if value.lower() in ("true", "false"):
-        return value.lower() == "true"
-    # Try int
-    try:
-        return int(value)
-    except ValueError:
-        pass
-    # Try float
-    try:
-        return float(value)
-    except ValueError:
-        pass
-    # Give up, return string
-    return value
-
-
-def argParse():
-    """Parse command line arguments into a dictionary
-    Returns:
-        dict of argument names to values
-    """
-    kwargs = {}
-    for arg in sys.argv[1:]:
-        if "=" in arg:
-            key, value = arg.split("=", 1)
-            kwargs[key] = parse_value(value)
-    return kwargs
-
-
-# ---------------------------------------
-# Example usage
-# ---------------------------------------
-if __name__ == "__main__":
-    # Parse command line arguments
-    args = argParse()
-
-    # Get parameters if they exist, else use defaults
-    # file_num is used to load different process files and save different timeline files
-    file_num = args.get("file_num", 1)
-
-    # Limit is used to restrict the number of processes loaded
-    limit = args.get("limit", None)
-
-    # Number of CPUs and IO devices
-    cpus = args.get("cpus", 1)
-    ios = args.get("ios", 1)
-
-    # Run the simulation
-    clock = Clock()
-    print(f"\n=== Simulation with {cpus} CPU(s) and {ios} IO device(s) ===")
-
-    # Load processes from JSON file
-    processes = load_processes_from_json(
-        f"./job_jsons/process_file_{str(file_num).zfill(4)}.json", limit=limit
-    )
-
-    # Initialize scheduler and add processes
-    sched = Scheduler(num_cpus=cpus, num_ios=ios, verbose=True)
-
-    # Add processes to scheduler
-    for p in processes:
-        sched.add_process(p)
-
-    # Run the scheduler
-    sched.run()
-
-    # Print final log and stats
-    print("\n--- Final Log ---")
-    print(sched.timeline())
-    print(f"\nTime elapsed: {sched.clock.now()}")
-    print(f"Finished: {[p.pid for p in sched.finished]}")
-
-    # Export structured logs
-    sched.export_json(f"./timelines/timeline{str(file_num).zfill(4)}.json")
-    sched.export_csv(f"./timelines/timeline{str(file_num).zfill(4)}.csv")
-    clock.reset()
+            # Print it
+            console = Console()
+            console.print(table)
+            
+        except ImportError:
+            # Fallback if rich is not available
+            print("\nProcess Details:")
+            for entry in raw_data:
+                print(f"  {entry}")
+        
+        # Print summary statistics
+        print("\n" + "-"*80)
+        print("SUMMARY STATISTICS")
+        print("-"*80)
+        print(f"Total Processes Completed:  {num_processes}")
+        print(f"Total Simulation Time:      {self.clock.now()}")
+        print(f"\nAverage Wait Time:          {avg_wait_time:.2f}")
+        print(f"Average Turnaround Time:    {avg_turnaround_time:.2f}")
+        print(f"Average Response Time:      {avg_response_time:.2f}")
+        print("="*80 + "\n")

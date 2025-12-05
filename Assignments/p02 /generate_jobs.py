@@ -63,7 +63,7 @@ def generate_io_burst(user_class):
 # ----------------------------------------------------------
 # Generate one process until CPU budget is consumed
 # ----------------------------------------------------------
-def generate_process(user_class, max_bursts=20):
+def generate_process(user_class, arrival_time, max_bursts=20):
     global pid
 
     # ppid= str(uuid.uuid4())[:8]
@@ -99,13 +99,22 @@ def generate_process(user_class, max_bursts=20):
 
     return {
         "pid": ppid,
+        "arrival_time": arrival_time,     # added arrival time here
         "class_id": user_class["class_id"],
         "priority": priority,
         "cpu_budget": cpu_budget,
         "cpu_used": cpu_used,
         "bursts": bursts,
+        "quantum": user_class.get("quantum", 4),  # get the time quantum default 4 if not provided
     }
 
+
+# ----------------------------------------------------------
+# Chose to implement single "batch" around a moment
+# ----------------------------------------------------------
+def batched_arrivals(n, mu, sigma):
+    times = [max(0, int(round(random.gauss(mu, sigma)))) for _ in range(n)]
+    return sorted(times)
 
 # ----------------------------------------------------------
 # Generate N processes across classes
@@ -116,9 +125,12 @@ def generate_processes(user_classes, n=100):
     total_rate = sum(cls["arrival_rate"] for cls in user_classes)
     weights = [cls["arrival_rate"] / total_rate for cls in user_classes]
 
-    for _ in range(n):
+    # generates ATs near time 50 and spread 20
+    arrival_times = batched_arrivals(n, mu = 50, sigma = 20)
+    
+    for i in range(n):
         user_class = random.choices(user_classes, weights=weights, k=1)[0]
-        process = generate_process(user_class)
+        process = generate_process(user_class, arrival_time = arrival_times[i])
         processes.append(process)
 
     return processes
